@@ -325,10 +325,13 @@ void cleanupChildDevices() {
 }
 
 // Application Support Routines
-Map getWeatherForecast() {
+
+Map getGridpointInfo() {
    // Determine if custom coordinates have been selected
+
    String latitude
    String longitude
+
    if(useCustomCords) {
       latitude = "${customlatitude}".toString()
       longitude = "${customlongitude}".toString()
@@ -337,12 +340,72 @@ Map getWeatherForecast() {
       longitude = "${location.longitude}".toString()
    }
 
-   String wxstation = "EAX"
-   String gridpointx = "51"
-   String gridpointy = "43"
+   String wxURI = "https://api.weather.gov/points/${latitude},${longitude}".toString()
+   Map result = [:]
+
+   state.wxURI = wxURI
+   if(debugEnable) log.debug "URI: <a href='${wxURI}' target=_blank>${wxURI}</a>"
+
+
+   if(debugEnable) log.debug "Connecting to weather.gov service."
+   Map requestParams =  [
+      uri:"${wxURI}",
+      requestContentType:"application/json",
+      contentType:"application/json"
+   ]
+
+   try {
+      httpGet(requestParams)  { response -> result = response.data }
+   }
+   catch (e) {
+      log.error "The API Weather.gov did not return a response (unable to map latitude/longitude to NOAA grid coordinates), exception: $e"
+   }
+
+   return result
+}
+
+Map getWeatherForecast() {
+   // Obtain the gridpoint information from the lat/long location
+
+   String wxstation
+   String gridpointx
+   String gridpointy
+
+   Map result = [:]
+
+   Map gridresult = getGridpointInfo()
+
+   if(gridresult) {
+      if (debugEnable) log.debug "Weather API returned grid point information"
+
+      if (gridresult.properties.gridId==null) {
+         log.error "Error converting latitude, longitude into NOAA grid point information (no office ID returned)"
+         return result
+      }
+
+      if (gridresult.properties.gridX==null) {
+         log.error "Error converting latitude, longitude into NOAA grid point information (no gridX value returned)"
+         return result
+      }
+
+      if (gridresult.properties.gridY==null) {
+         log.error "Error converting latitude, longitude into NOAA grid point information (no gridY value returned)"
+         return result
+      }
+   }
+   else {
+         log.error "Error converting latitude, longitude into NOAA grid point information (no data was returned)"
+         return result
+   }
+
+   wxstation = gridresult.properties.gridId
+   gridpointx = gridresult.properties.gridX
+   gridpointy = gridresult.properties.gridY
+
+   if(debugEnable) log.debug "The specified latitude,longitude corresponds to Office=${wxstation}, X=${gridpointx}, Y=${gridpointy}"
+
 
    String wxURI = "https://api.weather.gov/gridpoints/${wxstation}/${gridpointx},${gridpointy}/forecast/hourly".toString()
-   Map result = [:]
 
    state.wxURI = wxURI
    if(debugEnable) log.debug "URI: <a href='${wxURI}' target=_blank>${wxURI}</a>"
