@@ -3,7 +3,7 @@
  *  Hubitat Import URL: https://github.com/robstitt/Hubitat-NOAA-Hourly-Weather-Forecast-Information/raw/main/NOAA%20Hourly%20Weather%20Forecast%20Information.groovy
  *
  *  Copyright 2019 Aaron Ward
- *  Copyright 2021 Robert L. Stitt
+ *  Copyright 2021-2022 Robert L. Stitt
  *
  *-------------------------------------------------------------------------------------------------------------------
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -15,12 +15,14 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *
+ *  Change history:
  *
- * Last Update: 10/30/2021
- *   - Created
+ *    Created: 10/30/2021
+ *    Updated: 03/22/2022 (Added "Feature-Flags" workaround for old/cached data)
+ *
  */
 
-static String version() { return "1.0.000" }
+static String version() { return "1.0.001" }
 
 import groovy.transform.Field
 import groovy.json.*
@@ -346,10 +348,16 @@ Map getGridpointInfo() {
    state.wxURI = wxURI
    if(debugEnable) log.debug "URI: <a href='${wxURI}' target=_blank>${wxURI}</a>"
 
+   // Stuff a non-sensical date into the "Feature-Flags" parameter (which weather.gov apparently ignores) to force it to NOT use old, cached data
+   Date ffdate = new Date()
+   SimpleDateFormat ffsdf = new SimpleDateFormat("yyyyMMddHHmmssS")
+   String ffvalue = "tempworkaround-${ffsdf.format(ffdate)}"
+   Map getHeaders = [ "Feature-Flags": ffvalue]
 
    if(debugEnable) log.debug "Connecting to weather.gov service."
    Map requestParams =  [
       uri:"${wxURI}",
+      headers: getHeaders,
       requestContentType:"application/json",
       contentType:"application/json"
    ]
@@ -410,10 +418,19 @@ Map getWeatherForecast() {
    state.wxURI = wxURI
    if(debugEnable) log.debug "URI: <a href='${wxURI}' target=_blank>${wxURI}</a>"
 
-
    if(debugEnable) log.debug "Connecting to weather.gov service."
+
+   // Stuff a non-sensical date into the "Feature-Flags" parameter (which weather.gov apparently ignores) to force it to NOT use old, cached data
+   Date ffdate = new Date()
+   SimpleDateFormat ffsdf = new SimpleDateFormat("yyyyMMddHHmmssS")
+   String ffvalue = "tempworkaround-${ffsdf.format(ffdate)}"
+   Map getHeaders = [ "Feature-Flags": ffvalue]
+
+   if(debugEnable) log.debug "Using workaround 'Feature-Flags:${ffvalue}' header value to force bypassing of old, cached data."
+
    Map requestParams =  [
       uri:"${wxURI}",
+      headers:getHeaders,
       requestContentType:"application/json",
       contentType:"application/json"
    ]
