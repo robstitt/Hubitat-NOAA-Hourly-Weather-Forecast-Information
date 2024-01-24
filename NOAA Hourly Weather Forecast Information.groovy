@@ -3,7 +3,7 @@
  *  Hubitat Import URL: https://github.com/robstitt/Hubitat-NOAA-Hourly-Weather-Forecast-Information/raw/main/NOAA%20Hourly%20Weather%20Forecast%20Information.groovy
  *
  *  Copyright 2019 Aaron Ward
- *  Copyright 2021-2022 Robert L. Stitt
+ *  Copyright 2021-2024 Robert L. Stitt
  *
  *-------------------------------------------------------------------------------------------------------------------
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -19,10 +19,37 @@
  *
  *    Created: 10/30/2021
  *    Updated: 03/22/2022 (Added "Feature-Flags" workaround for old/cached data)
+ *    Updated: 01/23/2024 (Added "ShortTerm" forecast information)
+ *
+ *---------------------------------------------------------
+ * The ShortTerm values are set as follows:
+ *
+ * The "window time range" starts with the current time and ends "ShortTermHours" later.
+ *
+ * Only forecast periods (returned by NOAA) that start before the end of the window time range and which also end after
+ * after the start of the window time range are used (in other words, all forecast periods that are fully or partially
+ * within the window time range will be used).
+ *
+ * The start and end times will reflect the starting and ending date/times for earliest and latest forecast periods,
+ * respectively, that are fully or partially within the target window.
+ *
+ * PrecipPct - Highest percentage probabilty of all periods in the window
+ * PrecipType - Precipitation type for the period in the window with hightest percentage probability
+ * TempHigh - Highest forecast temp in all periods in the window
+ * TempLow  - Lowest forecast temp in all periods in the window
+ * TempUnit - The unit from the first period in the window with a non-blank temp unit (if any)
+ * WindSpeed - the highest wind speed of all periods in the window
+ * WindDirection - The direction associated with the highest wind speed in the window
+ * IconURL - The IconURL from the first period in the window with a non-blank IconURL (if any)
+ * ShortForecast - The first non-blank Short Forecast of all periods in the window
+ * DetailedForecast - The first non-blank Detailed forecast of all periods in the window
+ * Starts - This is the actual "start" date/time for the first forecast period (fully or partially) within the window
+ * Ends - This is the actual "end" date/time for the last forecast period (fully or partially) within the window
+ *---------------------------------------------------------
  *
  */
 
-static String version() { return "1.0.001" }
+static String version() { return "1.1.000" }
 
 import groovy.transform.Field
 import groovy.json.*
@@ -30,6 +57,7 @@ import java.util.regex.*
 import java.text.SimpleDateFormat
 import java.text.ParseException
 import java.util.Date
+import groovy.time.TimeCategory
 import groovy.time.*
 
 definition(
@@ -54,6 +82,7 @@ preferences {
 
 @Field static Map CurrentHourForecast=[:]
 @Field static Map NextHourForecast=[:]
+@Field static Map ShortTermForecast=[:]
 
 def mainPage() {
    dynamicPage(name: "mainPage") {
@@ -84,6 +113,8 @@ def ConfigPage() {
             ], defaultValue: "30"
 
          setRefresh()
+
+         input name: "shortTermHours", type: "number", range: "1..48", title: "Short Term Forecast Period (hours from current time)?", require: true, multiple: false, defaultValue: 5, submitOnChange: true
 
          input name: "useCustomCords", type: "bool", title: "Use Custom Coordinates?", require: false, defaultValue: false, submitOnChange: true
 
@@ -146,6 +177,17 @@ def DebugPage() {
             testConfig += "<tr><td>Times</td><td>From: ${NextHourForecast.Starts}<br/>To: ${NextHourForecast.Ends}</td></tr>"
             testConfig += "<tr><td>Summary</td><td>${NextHourForecast.ShortForecast}</td></tr>"
             testConfig += "<tr><td>Details</td><td>${NextHourForecast.DetailedForecast}</td></tr>"
+            testConfig += "</table><br/>"
+
+            testConfig += "<b>Short Term</b>"
+            testConfig += "<table border=1px>"
+            testConfig += "<tr><td>Min Temp</td><td>${ShortTermForecast.TempLow}  ${ShortTermForecast.TempUnit}</td></tr>"
+            testConfig += "<tr><td>Max Temp</td><td>${ShortTermForecast.TempHigh} ${ShortTermForecast.TempUnit}</td></tr>"
+            testConfig += "<tr><td>Max Wind</td><td>${ShortTermForecast.WindSpeed} ${ShortTermForecast.WindDirection}</td></tr>"
+            testConfig += "<tr><td>Precipitation</td><td>${ShortTermForecast.PrecipType} ${ShortTermForecast.PrecipPct}% (max)</td></tr>"
+            testConfig += "<tr><td>Times</td><td>From: ${ShortTermForecast.Starts}<br/>To: ${ShortTermForecast.Ends}</td></tr>"
+            testConfig += "<tr><td>Summary</td><td>${ShortTermForecast.ShortForecast}</td></tr>"
+            testConfig += "<tr><td>Details</td><td>${ShortTermForecast.DetailedForecast}</td></tr>"
             testConfig += "</table>"
 
             paragraph testConfig
@@ -184,13 +226,45 @@ void getForecast() {
          CurrentHourForecast = [:]
          NextHourForecast = [:]
 
-         for(i=0; i<Math.min(result.properties.periods.size(),2);i++) {
+         if (1 > shortTermHours) shortTermHours = 1
+
+         Integer ShortTermPrecippct = -1
+         String  ShortTermPrecippctstr = "0"
+         String  ShortTermPreciptype = "None"
+         Integer ShortTermTempHigh = -9999
+         Integer ShortTermTempLow = 9999
+         String  ShortTermTempUnit = "-"
+         Integer ShortTermWindSpeedInt = -1
+         String  ShortTermWindSpeed = "-"
+         String  ShortTermWindDirection = "-"
+         String  ShortTermIconURL = ""
+         String  ShortTermForecastShort = "-"
+         String  ShortTermForecastDetailed = "-"
+         Date    ShortTermdtperiodstarts = new Date()
+         Date    ShortTermdtperiodends
+         Date    ShortTermdtperiodstartsActual = new Date()
+         Date    ShortTermdtperiodendsActual = new Date()
+         boolean exitloop = false
+
+         if (debugEnable) log.debug "Short Term Starts at: ${ShortTermdtperiodstarts.toString()}"
+         if (debugEnable) log.debug "Short Term Period length: ${shortTermHours.toString()}"
+
+         Integer tmpHours = shortTermHours.toInteger()
+         use ( groovy.time.TimeCategory) {
+            ShortTermdtperiodends = ShortTermdtperiodstarts + tmpHours.hours
+         }
+
+         if (debugEnable) log.debug "Short Term Ends at (Date): ${ShortTermdtperiodends.toString()}"
+
+//         for(i=0; i<Math.min(result.properties.periods.size(),2);i++) {
+         for(i=0; (i<result.properties.periods.size() && !exitloop);i++) {
             if(debugEnable) log.debug "In weather period loop, i=${i.toString()}"
 
             Integer periodnumber
             Integer periodtemp
             String  periodtempunit
             String  periodwindspeed
+            Integer periodwindspeedint
             String  periodwinddirection
             String  periodiconurl
             String  periodforecastshort
@@ -216,7 +290,26 @@ void getForecast() {
             periodstarts           = (String)result.properties.periods[i].startTime
             periodends             = (String)result.properties.periods[i].endTime
 
-            if (periodwindspeed=="") periodforecastspeed = "-"
+            try {
+               Matcher match
+               if ((match = periodwindspeed =~ /(\d+)/)) {
+                  String extractspeed = match.group(1)
+
+                  if (extractspeed == "") {
+                     periodwindspeedint = -1
+                  } else {
+                     periodwindspeedint = extractspeed.toInteger()
+                  }
+               } else {
+                  periodwindspeedint = -1
+               }
+            }
+            catch (e) {
+               log.error "Error parsing weather forecast wind speed for period ${periodnumber.toString()}: ${periodwindspeed}."
+               periodwindspeedint = -1
+            }
+
+            if (periodwindspeed=="") periodwindspeed = "-"
             if (periodwinddirection=="") periodwinddirection = "-"
             if (periodforecastshort=="") periodforecastshort = "-"
             if (periodforecastdetailed=="") periodforecastdetailed = "-"
@@ -289,7 +382,75 @@ void getForecast() {
                NextHourForecast.Ends = dtperiodends
             }
 
+            if ((dtperiodstarts<=ShortTermdtperiodends) && (dtperiodends>=ShortTermdtperiodstarts)) {
+               if (ShortTermdtperiodstartsActual > dtperiodstarts) ShortTermdtperiodstartsActual = dtperiodstarts
+               if (dtperiodends > ShortTermdtperiodendsActual) ShortTermdtperiodendsActual = dtperiodends
+
+               if (0>ShortTermPrecippct) {
+                   ShortTermPrecippct = periodprecippct
+                   ShortTermPrecippctstr = periodprecippctstr
+               }
+
+               if (ShortTermPreciptype=="None") ShortTermPreciptype = periodpreciptype
+
+               if (ShortTermTempHigh==-9999)    ShortTermTempHigh   = periodtemp
+
+               if (ShortTermTempLow==9999)      ShortTermTempLow    = periodtemp
+
+               if ((ShortTermTempUnit=="-") && (periodtempunit != "")) ShortTermTempUnit = periodtempunit
+
+               if ((ShortTermWindSpeed=="-") && (periodwindspeedint>=0)) {
+                   ShortTermWindSpeedInt = periodwindspeedint
+                   ShortTermWindSpeed = periodwindspeed
+                   ShortTermWindDirection = periodwinddirection
+               } else if ((periodwindspeedint >=0) && (ShortTermWindSpeedInt < periodwindspeedint)) {
+                   ShortTermWindSpeedInt = periodwindspeedint
+                   ShortTermWindSpeed = periodwindspeed
+                   ShortTermWindDirection = periodwinddirection
+               }
+
+               if (ShortTermPrecippct < periodprecippct) {
+                  ShortTermPrecippct    = periodprecippct
+                  ShortTermPrecippctstr = periodprecippctstr
+                  ShortTermPreciptype   = periodpreciptype
+               }
+
+               if (ShortTermTempHigh < periodtemp) {
+                  ShortTermTempHigh = periodtemp
+                  ShortTermTempUnit = periodtempunit
+               }
+
+               if (ShortTermTempLow > periodtemp) {
+                  ShortTermTempLow = periodtemp
+                  ShortTermTempUnit = periodtempunit
+               }
+
+               if ((ShortTermIconURL == "") && (periodiconurl != "")) ShortTermIconURL = periodiconurl
+
+               if ((ShortTermForecastShort == "-") && (periodforecastshort != "-")) ShortTermForecastShort = periodforecastshort
+
+               if ((ShortTermForecastDetailed == "-") && (periodforecastdetailed != "-")) ShortTermForecastDetailed = periodforecastdetailed
+            }
+
+            if ((dtperiodstarts>ShortTermdtperiodends) && (i>2)) exitloop = true
+
          } //end of for statement
+
+
+         ShortTermForecast = [:]
+
+         ShortTermForecast.TempHigh = ShortTermTempHigh
+         ShortTermForecast.TempLow  = ShortTermTempLow
+         ShortTermForecast.TempUnit = ShortTermTempUnit
+         ShortTermForecast.WindSpeed  = ShortTermWindSpeed
+         ShortTermForecast.WindDirection  = ShortTermWindDirection
+         ShortTermForecast.IconURL = ShortTermIconUrl
+         ShortTermForecast.ShortForecast = ShortTermForecastShort
+         ShortTermForecast.DetailedForecast = ShortTermForecastDetailed
+         ShortTermForecast.PrecipPct = ShortTermPrecippct
+         ShortTermForecast.PrecipType = ShortTermPreciptype
+         ShortTermForecast.Starts = ShortTermdtperiodstartsActual
+         ShortTermForecast.Ends = ShortTermdtperiodendsActual
       }
    }
 
@@ -306,6 +467,11 @@ Map getForecastCurrentDevice() {
 Map getForecastNextDevice() {
    if(debugEnable) log.debug "Returning forecast for the next hour to the child device"
    return NextHourForecast
+}
+
+Map getForecastShortTermDevice() {
+   if(debugEnable) log.debug "Returning forecast for the short term to the child device"
+   return ShortTermForecast
 }
 
 // Device creation and status updhandlers
@@ -449,6 +615,7 @@ void checkState() {
    if(whatPoll==null) app.updateSetting("whatPoll",[value:"30",type:"enum"])
    if(logEnable==null) app.updateSetting("logEnable",[value:"false",type:"bool"])
    if(debugEnable==null) app.updateSetting("debugEnable",[value:"false",type:"bool"])
+   if(logMinutes==null) app.updateSetting("logMinutes",[value:15,type:"number"])
    if(logMinutes==null) app.updateSetting("logMinutes",[value:15,type:"number"])
 }
 
