@@ -3,7 +3,7 @@
  *  importUrl: https://github.com/robstitt/Hubitat-NOAA-Hourly-Weather-Forecast-Information/raw/main/NOAA%20Hourly%20Weather%20Forecast%20Device%20Driver.groovy
  *
  *  Copyright 2019 Aaron Ward
- *  Copyright 2021 Robert L. Stitt
+ *  Copyright 2021-2024 Robert L. Stitt
  *
  *-------------------------------------------------------------------------------------------------------------------
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -16,7 +16,7 @@
  *  for the specific language governing permissions and limitations under the License.
  *
  *
- * Last Update: 10/30/2021
+ * Last Update: 01/23/2024
  */
 
 metadata {
@@ -41,6 +41,7 @@ metadata {
       attribute "CurIconURL", "string"
       attribute "CurSummary", "string"
       attribute "CurDetail", "string"
+
       attribute "NextTemp", "number"
       attribute "NextTempUnit", "string"
       attribute "NextWindSpeed", "string"
@@ -52,6 +53,19 @@ metadata {
       attribute "NextIconURL", "string"
       attribute "NextSummary", "string"
       attribute "NextDetail", "string"
+
+      attribute "ShortTermTempLow", "number"
+      attribute "ShortTermTempHigh", "number"
+      attribute "ShortTermTempUnit", "string"
+      attribute "ShortTermWindSpeed", "string"
+      attribute "ShortTermWindDirection", "string"
+      attribute "ShortTermPrecipPct", "number"
+      attribute "ShortTermPrecipType", "string"
+      attribute "ShortTermPeriodStarts", "date"
+      attribute "ShortTermPeriodEnds", "date"
+      attribute "ShortTermIconURL", "string"
+      attribute "ShortTermSummary", "string"
+      attribute "ShortTermDetail", "string"
       }
 
    preferences() {
@@ -94,6 +108,19 @@ def installed(){
    sendEvent(name: "NextIconURL", value: "", displayed: true)
    sendEvent(name: "NextSummary", value: "", displayed: true)
    sendEvent(name: "NextDetail", value: "", displayed: true)
+
+   sendEvent(name: "ShortTermtTempLow", value: "", displayed: true)
+   sendEvent(name: "ShortTermtTempHigh", value: "", displayed: true)
+   sendEvent(name: "ShortTermTempUnit", value: "", displayed: true)
+   sendEvent(name: "ShortTermtWindSpeed", value: "", displayed: true)
+   sendEvent(name: "ShortTermWindDirection", value: "", displayed: true)
+   sendEvent(name: "ShortTermPrecipPct", value: "", displayed: true)
+   sendEvent(name: "ShortTermPrecipType", value: "", displayed: true)
+   sendEvent(name: "ShortTermPeriodStarts", value: "", displayed: true)
+   sendEvent(name: "ShortTermPeriodEnds", value: "", displayed: true)
+   sendEvent(name: "ShortTermIconURL", value: "", displayed: true)
+   sendEvent(name: "ShortTermSummary", value: "", displayed: true)
+   sendEvent(name: "ShortTermDetail", value: "", displayed: true)
 }
 
 void logsOff(){
@@ -156,5 +183,33 @@ def refresh() {
       sendEvent(name: "NextIconURL", value: NextHourForecast.IconURL, displayed: true)
       sendEvent(name: "NextSummary", value: NextHourForecast.ShortForecast, displayed: true)
       sendEvent(name: "NextDetail", value: NextHourForecast.DetailedForecast, displayed: true)
+   }
+
+   Map ShortTermForecast = [:]
+
+   try {
+      ShortTermForecast = (Map)parent.getForecastShortTermDevice()
+   }
+   catch (e) {
+      if(logEnable) log.warn "Error getting the short term forecast data from parent NOAA Hourly Weather Forecast Information App: $e"
+      ShortTermForecast = [:]
+   }
+
+   if(ShortTermForecast.equals([:])) {
+      if(logEnable) log.warn "No short term forecast data received from the parent NOAA Weather Alert Monitor App"
+   } else {
+      if(logEnable) log.info "Short term forecast data received from parent NOAA Hourly Weather Forecast Information App."
+      sendEvent(name: "ShortTermTempLow", value: ShortTermForecast.TempLow, displayed: true)
+      sendEvent(name: "ShortTermTempHigh", value: ShortTermForecast.TempHigh, displayed: true)
+      sendEvent(name: "ShortTermTempUnit", value: ShortTermForecast.TempUnit, displayed: true)
+      sendEvent(name: "ShortTermWindSpeed", value: ShortTermForecast.WindSpeed, displayed: true)
+      sendEvent(name: "ShortTermWindDirection", value: ShortTermForecast.WindDirection, displayed: true)
+      sendEvent(name: "ShortTermPrecipPct", value: ShortTermForecast.PrecipPct, displayed: true)
+      sendEvent(name: "ShortTermPrecipType", value: ShortTermForecast.PrecipType, displayed: true)
+      sendEvent(name: "ShortTermPeriodStarts", value: ShortTermForecast.Starts, displayed: true)
+      sendEvent(name: "ShortTermPeriodEnds", value: ShortTermForecast.Ends, displayed: true)
+      sendEvent(name: "ShortTermIconURL", value: ShortTermForecast.IconURL, displayed: true)
+      sendEvent(name: "ShortTermSummary", value: ShortTermForecast.ShortForecast, displayed: true)
+      sendEvent(name: "ShortTermDetail", value: ShortTermForecast.DetailedForecast, displayed: true)
    }
 }
