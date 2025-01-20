@@ -3,7 +3,7 @@
  *  Hubitat Import URL: https://github.com/robstitt/Hubitat-NOAA-Hourly-Weather-Forecast-Information/raw/main/NOAA%20Hourly%20Weather%20Forecast%20Information.groovy
  *
  *  Copyright 2019 Aaron Ward
- *  Copyright 2021-2024 Robert L. Stitt
+ *  Copyright 2021-2025 Robert L. Stitt
  *
  *-------------------------------------------------------------------------------------------------------------------
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -20,6 +20,7 @@
  *    Created: 10/30/2021
  *    Updated: 03/22/2022 (Added "Feature-Flags" workaround for old/cached data)
  *    Updated: 01/23/2024 (Added "ShortTerm" forecast information)
+ *    Updated (1.1.001): 01/20/2025 (Added ",[misfire:ignore]" to runIn calls
  *
  *---------------------------------------------------------
  * The ShortTerm values are set as follows:
@@ -49,7 +50,7 @@
  *
  */
 
-static String version() { return "1.1.000" }
+static String version() { return "1.1.001" }
 
 import groovy.transform.Field
 import groovy.json.*
@@ -631,8 +632,8 @@ void initialize() {
     unschedule()
     createChildDevices()
     callRefreshForecastDevice()
-    runIn(2,main)
-    runIn(5,setRefresh)
+    runIn(2,main,[misfire:ignore])
+    runIn(5,setRefresh,[misfire:ignore])
 }
 
 void setRefresh() {
